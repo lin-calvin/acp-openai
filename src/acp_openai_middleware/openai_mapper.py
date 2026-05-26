@@ -21,6 +21,9 @@ from .session_pool import HistoryMessage
 ACP_CONTENT_BLOCK = TextContentBlock
 
 
+_ROLE_PREFIX = "[Assistant]: "
+
+
 def to_acp_content_blocks(
     messages: list[ChatMessage],
 ) -> list[ACP_CONTENT_BLOCK]:
@@ -31,6 +34,8 @@ def to_acp_content_blocks(
             blocks.append(text_block(f"[System]: {content}"))
         elif msg.role == "user":
             blocks.append(text_block(content))
+        elif msg.role == "assistant":
+            blocks.append(text_block(f"{_ROLE_PREFIX}{content}"))
     return blocks
 
 
@@ -81,7 +86,11 @@ def extract_history_messages(
     result: list[HistoryMessage] = []
     for block in user_blocks:
         if isinstance(block, TextContentBlock):
-            result.append(HistoryMessage(role="user", content=block.text))
+            if block.text.startswith(_ROLE_PREFIX):
+                content = block.text[len(_ROLE_PREFIX):]
+                result.append(HistoryMessage(role="assistant", content=content))
+            else:
+                result.append(HistoryMessage(role="user", content=block.text))
     if full_text:
         result.append(HistoryMessage(role="assistant", content=full_text))
     return result

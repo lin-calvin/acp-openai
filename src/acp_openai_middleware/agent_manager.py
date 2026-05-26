@@ -53,6 +53,43 @@ from .session_pool import SessionEntry, SessionPool, HistoryMessage
 logger = logging.getLogger(__name__)
 
 
+def _tool_call_content_to_text(contents: list) -> str:
+    parts: list[str] = []
+    for c in contents or []:
+        if hasattr(c, "type") and c.type == "content":
+            if isinstance(c.content, TextContentBlock):
+                parts.append(c.content.text)
+        elif hasattr(c, "type") and c.type == "diff":
+            parts.append(f"{c.path}: {c.old_text or ''} → {c.new_text}")
+        elif hasattr(c, "type") and c.type == "terminal":
+            parts.append(f"terminal_id={c.terminal_id}")
+    return " | ".join(parts)
+
+
+def _format_tool_call(tc) -> str:
+    title = getattr(tc, "title", None) or "unknown"
+    kind = getattr(tc, "kind", None) or ""
+    status = getattr(tc, "status", None) or ""
+    line = f"Tool call: {title}"
+    extras = []
+    if kind:
+        extras.append(f"kind={kind}")
+    if status:
+        extras.append(f"status={status}")
+    content_text = _tool_call_content_to_text(getattr(tc, "content", []) or [])
+    if content_text:
+        extras.append(content_text)
+    if extras:
+        line += " [" + ", ".join(extras) + "]"
+    return line
+
+
+def _build_think_block(think_parts: list[str]) -> str:
+    if not think_parts:
+        return ""
+    return "<think>\n" + "\n".join(think_parts) + "\n</think>\n\n"
+
+
 class _MiddlewareClient(Client):
     def __init__(self, manager: NamespaceState) -> None:
         self._manager = manager
@@ -87,6 +124,13 @@ class _MiddlewareClient(Client):
             self._manager._pending_chunks.append(update)
         elif isinstance(update, UsageUpdate):
             self._manager._last_usage = update
+        elif isinstance(update, (ToolCallStart, ToolCallProgress)):
+            think_text = _format_tool_call(update)
+            if think_text:
+                self._manager._think_parts.append(think_text)
+        elif isinstance(update, AgentThoughtChunk):
+            if isinstance(update.content, TextContentBlock):
+                self._manager._think_parts.append(update.content.text)
 
     async def read_text_file(
         self,
@@ -164,10 +208,12 @@ class NamespaceState:
         self.lock = asyncio.Lock()
         self._pending_chunks: list[AgentMessageChunk] = []
         self._last_usage: UsageUpdate | None = None
+        self._think_parts: list[str] = []
 
     def clear_pending(self) -> None:
         self._pending_chunks = []
         self._last_usage = None
+        self._think_parts = []
 
 
 class AgentSessionManager:
@@ -308,9 +354,11 @@ class AgentSessionManager:
             )
             full_text = "".join(acp_chunk_to_text(c) for c in ns._pending_chunks)
             response = PromptResponse(stop_reason="end_turn")
-            return full_text, response
+            think_block = _build_think_block(ns._think_parts)
+            return think_block + full_text, response
         full_text = "".join(acp_chunk_to_text(c) for c in ns._pending_chunks)
-        return full_text, response
+        think_block = _build_think_block(ns._think_parts)
+        return think_block + full_text, response
 
     async def evict_stale_from_all(self) -> int:
         total = 0

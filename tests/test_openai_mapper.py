@@ -42,17 +42,18 @@ class TestToAcpContentBlocks:
         assert blocks[0].text == "[System]: you are helpful"
         assert blocks[1].text == "hi"
 
-    def test_assistant_messages_skipped(self):
+    def test_assistant_messages_included(self):
         messages = [
             ChatMessage(role="user", content="hello"),
             ChatMessage(role="assistant", content="hi there"),
             ChatMessage(role="user", content="how are you"),
         ]
         blocks = to_acp_content_blocks(messages)
-        # Only user and system messages are converted
-        assert len(blocks) == 2
+        assert len(blocks) == 3
         assert blocks[0].text == "hello"
-        assert blocks[1].text == "how are you"
+        assert blocks[1].text == "[Assistant]: hi there"
+        assert blocks[1].text.startswith("[Assistant]: ")
+        assert blocks[2].text == "how are you"
 
     def test_empty_content(self):
         messages = [ChatMessage(role="user", content=None)]
@@ -122,6 +123,26 @@ class TestExtractHistoryMessages:
         )
         assert len(history) == 1
         assert history[0].role == "user"
+
+    def test_assistant_prefix_detected(self):
+        from acp import text_block
+        history = extract_history_messages(
+            full_text="new response",
+            user_blocks=[
+                text_block("user message"),
+                text_block("[Assistant]: prior assistant text"),
+                text_block("another user message"),
+            ],
+        )
+        assert len(history) == 4
+        assert history[0].role == "user"
+        assert history[0].content == "user message"
+        assert history[1].role == "assistant"
+        assert history[1].content == "prior assistant text"
+        assert history[2].role == "user"
+        assert history[2].content == "another user message"
+        assert history[3].role == "assistant"
+        assert history[3].content == "new response"
 
 
 class TestAcpChunkToText:

@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from ..agent_manager import AgentSessionManager, NamespaceState
+from ..agent_manager import AgentSessionManager, NamespaceState, _build_think_block
 from ..openai_mapper import (
     ACP_CONTENT_BLOCK,
     build_non_streaming_response,
@@ -115,6 +115,7 @@ async def _stream_events(
     )
 
     sent_role = False
+    think_sent = False
     finish_reason: str | None = None
 
     from ..openai_mapper import acp_chunk_to_text, chunk_to_delta
@@ -122,6 +123,20 @@ async def _stream_events(
     full_text_parts: list[str] = []
 
     while not prompt_task.done() or ns._pending_chunks:
+        if not think_sent and ns._think_parts:
+            think_block = _build_think_block(ns._think_parts)
+            delta = ChatCompletionDelta(content=think_block, role="assistant")
+            sent_role = True
+            think_sent = True
+            full_text_parts.append(think_block)
+            payload = ChatCompletionChunk(
+                id=completion_id,
+                created=int(time.time()),
+                model=model,
+                choices=[ChatCompletionChunkChoice(index=0, delta=delta, finish_reason=None)],
+            ).model_dump(mode="json", exclude_none=True)
+            yield {"data": json.dumps(payload)}
+
         while ns._pending_chunks:
             chunk = ns._pending_chunks.pop(0)
             text = acp_chunk_to_text(chunk)
@@ -177,6 +192,7 @@ async def _stream_events(
     yield {"data": json.dumps(final_payload)}
     yield {"data": "[DONE]"}
 
-    full_text = "".join(full_text_parts)
+    think_block = _build_think_block(ns._think_parts) if not think_sent else ""
+    full_text = think_block + "".join(full_text_parts)
     history_msgs = extract_history_messages(full_text, content_blocks)
     await ns.pool.record_response(entry.session_id, history_msgs)
