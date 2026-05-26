@@ -112,6 +112,61 @@ class TestFormatToolCall:
         result = _format_tool_call(tc)
         assert "saved to disk" in result
 
+    def test_toolcall_with_raw_input(self):
+        tc = ToolCallStart(
+            session_update="tool_call",
+            tool_call_id="tc_1",
+            title="search",
+            kind="search",
+            raw_input={"pattern": "foo", "path": "/tmp"},
+        )
+        result = _format_tool_call(tc)
+        assert 'input={"pattern": "foo", "path": "/tmp"}' in result
+
+    def test_toolcall_with_raw_output(self):
+        tc = ToolCallProgress(
+            session_update="tool_call_update",
+            tool_call_id="tc_1",
+            title="search",
+            status="completed",
+            raw_output="found 5 matches",
+        )
+        result = _format_tool_call(tc)
+        assert "output=found 5 matches" in result
+        assert "completed" in result
+
+    def test_toolcall_with_input_and_output(self):
+        tc = ToolCallProgress(
+            session_update="tool_call_update",
+            tool_call_id="tc_1",
+            title="grep",
+            kind="search",
+            status="completed",
+            raw_input=["rg", "pattern", "."],
+            raw_output="3 results",
+        )
+        result = _format_tool_call(tc)
+        assert 'input=["rg", "pattern", "."]' in result
+        assert "output=3 results" in result
+
+
+class TestFormatValue:
+    def test_dict(self):
+        from acp_openai_middleware.agent_manager import _format_value
+        assert _format_value({"key": "val"}) == '{"key": "val"}'
+
+    def test_list(self):
+        from acp_openai_middleware.agent_manager import _format_value
+        assert _format_value([1, 2, 3]) == "[1, 2, 3]"
+
+    def test_string(self):
+        from acp_openai_middleware.agent_manager import _format_value
+        assert _format_value("hello") == "hello"
+
+    def test_none_int(self):
+        from acp_openai_middleware.agent_manager import _format_value
+        assert _format_value(0) == "0"
+
 
 class TestBuildThinkBlock:
     def test_empty(self):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import asyncio.subprocess as aio_subprocess
 import hashlib
+import json
 import logging
 import os
 import sys
@@ -76,12 +77,24 @@ def _format_tool_call(tc) -> str:
         extras.append(f"kind={kind}")
     if status:
         extras.append(f"status={status}")
+    raw_input = getattr(tc, "raw_input", None)
+    if raw_input is not None:
+        extras.append(f"input={_format_value(raw_input)}")
+    raw_output = getattr(tc, "raw_output", None)
+    if raw_output is not None:
+        extras.append(f"output={_format_value(raw_output)}")
     content_text = _tool_call_content_to_text(getattr(tc, "content", []) or [])
     if content_text:
         extras.append(content_text)
     if extras:
         line += " [" + ", ".join(extras) + "]"
     return line
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def _build_think_block(think_parts: list[str]) -> str:
