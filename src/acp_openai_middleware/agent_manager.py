@@ -71,29 +71,60 @@ def _format_tool_call(tc) -> str:
     title = getattr(tc, "title", None) or "unknown"
     kind = getattr(tc, "kind", None) or ""
     status = getattr(tc, "status", None) or ""
-    line = f"Tool call: {title}"
-    extras = []
+
+    lines = [f"Tool call: {title}"]
     if kind:
-        extras.append(f"kind={kind}")
+        lines.append(f"  kind: {kind}")
     if status:
-        extras.append(f"status={status}")
+        lines.append(f"  status: {status}")
+
     raw_input = getattr(tc, "raw_input", None)
     if raw_input is not None:
-        extras.append(f"input={_format_value(raw_input)}")
+        if isinstance(raw_input, (dict, list)):
+            lines.append("  input:")
+            lines.append(_format_yaml_value(raw_input, indent=1))
+        else:
+            lines.append(f"  input: {raw_input}")
+
     raw_output = getattr(tc, "raw_output", None)
     if raw_output is not None:
-        extras.append(f"output={_format_value(raw_output)}")
+        if isinstance(raw_output, (dict, list)):
+            lines.append("  output:")
+            lines.append(_format_yaml_value(raw_output, indent=1))
+        else:
+            lines.append(f"  output: {raw_output}")
+
     content_text = _tool_call_content_to_text(getattr(tc, "content", []) or [])
     if content_text:
-        extras.append(content_text)
-    if extras:
-        line += " [" + ", ".join(extras) + "]"
-    return line
+        lines.append(f"  content: {content_text}")
+
+    return "\n".join(lines)
 
 
-def _format_value(value: Any) -> str:
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False)
+def _format_yaml_value(value: Any, indent: int = 0) -> str:
+    child_prefix = "  " * (indent + 1)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        parts: list[str] = []
+        for k, v in value.items():
+            if isinstance(v, (dict, list)):
+                parts.append(f"{child_prefix}{k}:")
+                parts.append(_format_yaml_value(v, indent + 1))
+            else:
+                parts.append(f"{child_prefix}{k}: {v}")
+        return "\n".join(parts)
+    elif isinstance(value, list):
+        if not value:
+            return "[]"
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                parts.append(f"{child_prefix}-")
+                parts.append(_format_yaml_value(item, indent + 1))
+            else:
+                parts.append(f"{child_prefix}- {item}")
+        return "\n".join(parts)
     return str(value)
 
 

@@ -75,7 +75,11 @@ class TestFormatToolCall:
             status="in_progress",
         )
         result = _format_tool_call(tc)
-        assert result == "Tool call: read_file [kind=read, status=in_progress]"
+        assert result == (
+            "Tool call: read_file\n"
+            "  kind: read\n"
+            "  status: in_progress"
+        )
 
     def test_toolcall_start_minimal(self):
         tc = ToolCallStart(
@@ -112,7 +116,7 @@ class TestFormatToolCall:
         result = _format_tool_call(tc)
         assert "saved to disk" in result
 
-    def test_toolcall_with_raw_input(self):
+    def test_toolcall_with_raw_input_dict(self):
         tc = ToolCallStart(
             session_update="tool_call",
             tool_call_id="tc_1",
@@ -121,9 +125,11 @@ class TestFormatToolCall:
             raw_input={"pattern": "foo", "path": "/tmp"},
         )
         result = _format_tool_call(tc)
-        assert 'input={"pattern": "foo", "path": "/tmp"}' in result
+        assert "input:" in result
+        assert "    pattern: foo" in result
+        assert "    path: /tmp" in result
 
-    def test_toolcall_with_raw_output(self):
+    def test_toolcall_with_raw_output_scalar(self):
         tc = ToolCallProgress(
             session_update="tool_call_update",
             tool_call_id="tc_1",
@@ -132,10 +138,10 @@ class TestFormatToolCall:
             raw_output="found 5 matches",
         )
         result = _format_tool_call(tc)
-        assert "output=found 5 matches" in result
+        assert "output: found 5 matches" in result
         assert "completed" in result
 
-    def test_toolcall_with_input_and_output(self):
+    def test_toolcall_with_input_list_and_output_scalar(self):
         tc = ToolCallProgress(
             session_update="tool_call_update",
             tool_call_id="tc_1",
@@ -146,42 +152,61 @@ class TestFormatToolCall:
             raw_output="3 results",
         )
         result = _format_tool_call(tc)
-        assert 'input=["rg", "pattern", "."]' in result
-        assert "output=3 results" in result
+        assert "input:" in result
+        assert "    - rg" in result
+        assert "    - pattern" in result
+        assert "    - ." in result
+        assert "output: 3 results" in result
 
 
-class TestFormatValue:
+class TestFormatYamlValue:
     def test_dict(self):
-        from acp_openai_middleware.agent_manager import _format_value
-        assert _format_value({"key": "val"}) == '{"key": "val"}'
+        from acp_openai_middleware.agent_manager import _format_yaml_value
+
+        value = {"key": "val"}
+        result = _format_yaml_value(value, indent=1)
+        assert result == "    key: val"
+
+    def test_nested_dict(self):
+        from acp_openai_middleware.agent_manager import _format_yaml_value
+
+        value = {"outer": {"inner": "v"}}
+        result = _format_yaml_value(value, indent=1)
+        assert result == "    outer:\n      inner: v"
 
     def test_list(self):
-        from acp_openai_middleware.agent_manager import _format_value
-        assert _format_value([1, 2, 3]) == "[1, 2, 3]"
+        from acp_openai_middleware.agent_manager import _format_yaml_value
 
-    def test_string(self):
-        from acp_openai_middleware.agent_manager import _format_value
-        assert _format_value("hello") == "hello"
+        value = [1, 2, 3]
+        result = _format_yaml_value(value, indent=1)
+        assert result == "    - 1\n    - 2\n    - 3"
 
-    def test_none_int(self):
-        from acp_openai_middleware.agent_manager import _format_value
-        assert _format_value(0) == "0"
+    def test_empty_dict(self):
+        from acp_openai_middleware.agent_manager import _format_yaml_value
+
+        assert _format_yaml_value({}, indent=1) == "{}"
+
+    def test_empty_list(self):
+        from acp_openai_middleware.agent_manager import _format_yaml_value
+
+        assert _format_yaml_value([], indent=1) == "[]"
 
 
 class TestBuildThinkBlock:
     def test_empty(self):
         assert _build_think_block([]) == ""
 
-    def test_single_line(self):
-        result = _build_think_block(["Tool call: read_file [kind=read]"])
-        assert result == "<think>\nTool call: read_file [kind=read]\n</think>\n\n"
+    def test_single_entry(self):
+        entry = "Tool call: read_file\n  kind: read"
+        result = _build_think_block([entry])
+        assert result == "<think>\nTool call: read_file\n  kind: read\n</think>\n\n"
 
-    def test_multiple_lines(self):
+    def test_multiple_entries(self):
         parts = [
-            "Tool call: read_file [kind=read, status=in_progress]",
-            "Tool call: read_file [kind=read, status=completed]",
-            "Tool call: search [kind=search, status=in_progress]",
-            "Tool call: search [kind=search, status=completed]",
+            "Tool call: read_file\n  kind: read\n  status: in_progress",
+            "Tool call: read_file\n  kind: read\n  status: completed",
+            "Tool call: search\n  kind: search\n  status: in_progress",
+            "Tool call: search\n  kind: search\n  status: completed",
         ]
         result = _build_think_block(parts)
         assert result.startswith("<think>\n")
